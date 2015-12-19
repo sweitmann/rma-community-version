@@ -94,7 +94,7 @@ $sf
 <table class=login border=3 cellpadding=20>
   <tr>
     <td class=login align=center><a class="mainpageref" href="http://www.runmyaccounts.com" target=_blank><img src=$images/sql-ledger.gif border=0></a>
-<h1 class=login align=center>|.$locale->text('Version').qq| $form->{version}
+<h1 class=login align=center>|.$locale->text('Community Version').qq| $form->{version}
 </h1>
 
 <form method=post action=$form->{script}>
@@ -129,7 +129,8 @@ $sf
   </tr>
 </table>
   
-  <div class="service_portal_warning" align=center>Achtung! Diese Seite wurde durch <a href="https://service.runmyaccounts.com">https://service.runmyaccounts.com</a> abgelöst!</div>
+<!--  <div class="service_portal_warning" align=center>Achtung! Diese Seite wurde durch <a href="https://service.runmyaccounts.com">https://service.runmyaccounts.com</a> abgelöst!</div>   -->
+
   
 </body>
 </html>
