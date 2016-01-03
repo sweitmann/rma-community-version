@@ -498,7 +498,7 @@ sub payments_header {
 |;
   } else {
     $datepaid = qq|
-		<td><input name=datepaid value="$form->{datepaid}" title="$myconfig{dateformat}" onChange="validateDate(this)" size=11 class=date></td>
+		<td><input name=datepaid value="$form->{datepaid}" title="$myconfig{dateformat}" size=11 class=date></td>
 |;
   }
 
@@ -529,8 +529,6 @@ javascript:window.history.forward(1);
  
 <body>
 
-<div align="center" class="redirectmsg">$form->{redirectmsg}</div>
-
 <form method=post action=$form->{script}>
 |;
 
@@ -559,9 +557,9 @@ javascript:window.history.forward(1);
 		  <table>
 		    <tr>
 		<th align=right>|.$locale->text('From').qq|</th>
-		<td><input name=duedatefrom value="$form->{duedatefrom}" title="$myconfig{dateformat}" onChange="validateDate(this)" size=11 class=date></td>
+		<td><input name=duedatefrom value="$form->{duedatefrom}" title="$myconfig{dateformat}" size=11 class=date></td>
 		<th align=right>|.$locale->text('To').qq|</th>
-		<td><input name=duedateto value="$form->{duedateto}" title="$myconfig{dateformat}" onChange="validateDate(this)" size=11 class=date></td>
+		<td><input name=duedateto value="$form->{duedateto}" title="$myconfig{dateformat}" size=11 class=date></td>
 		    </tr>
 		  </table>
 		</td>
@@ -742,6 +740,7 @@ sub payments_footer {
   
     $media .= qq|</select>|;
     $format = qq|<select name=format>
+            <option value=postscript $form->{DF}{postscript}>|.$locale->text('Postscript').qq|
 	    <option value=pdf $form->{DF}{pdf}>|.$locale->text('PDF').qq|</select>|;
   }
 
@@ -1143,14 +1142,11 @@ sub update_payment {
 
       for (qw(id invnumber invdescription transdate duedate calcdiscount discountterms cashdiscount netamount)) { $form->{"${_}_$i"} = $ref->{$_} }
       $ref->{exchangerate} ||= 1;
-      $due = ($form->{edit}) ? $ref->{fxamount} : $ref->{fxamount} - $ref->{fxpaid};
+      $due = ($form->{edit}) ? $ref->{amount} : $ref->{amount} - $ref->{paid};
 
-      $form->{"due_$i"} = $form->format_amount(\%myconfig, $due, $form->{precision});
+      $form->{"due_$i"} = $form->format_amount(\%myconfig, $due / $ref->{exchangerate}, $form->{precision});
+      $form->{"amount_$i"} = $form->format_amount(\%myconfig, $ref->{amount} / $ref->{exchangerate}, $form->{precision});
       $form->{"netamount_$i"} = $form->format_amount(\%myconfig, $ref->{netamount} / $ref->{exchangerate}, $form->{precision});
-
-      $form->{"amount_$i"} = $form->format_amount(\%myconfig, $ref->{fxamount}, $form->{precision});
-      $form->{"paid_$i"} = $form->format_amount(\%myconfig, $ref->{fxpaid}, $form->{precision});
-
       for (qw(checked paid discount total)) { $form->{"${_}_$i"} = "" }
     }
     $form->{rowcount} = $i;
@@ -1272,9 +1268,9 @@ sub payment_header {
 		  <table>
 		    <tr>
 		      <th align=right>|.$locale->text('From').qq|</th>
-		      <td><input name=duedatefrom value="$form->{duedatefrom}" title="$myconfig{dateformat}" onChange="validateDate(this)" size=11 class=date></td>
+		      <td><input name=duedatefrom value="$form->{duedatefrom}" title="$myconfig{dateformat}" size=11 class=date></td>
 		      <th align=right>|.$locale->text('To').qq|</th>
-		      <td><input name=duedateto value="$form->{duedateto}" title="$myconfig{dateformat}" onChange="validateDate(this)" size=11 class=date></td>
+		      <td><input name=duedateto value="$form->{duedateto}" title="$myconfig{dateformat}" size=11 class=date></td>
 		    </tr>
 		  </table>
 		</td>
@@ -1381,7 +1377,7 @@ sub payment_header {
 |;
   } else {
     $datepaid = qq|
-		<td><input name=datepaid value="$form->{datepaid}" title="$myconfig{dateformat}" onChange="validateDate(this)" size=11 class=date></td>
+		<td><input name=datepaid value="$form->{datepaid}" title="$myconfig{dateformat}" size=11 class=date></td>
 |;
   }
 
@@ -1411,8 +1407,6 @@ javascript:window.history.forward(1);
 </script>
   
 <body>
-
-<div align="center" class="redirectmsg">$form->{redirectmsg}</div>
 
 <form method=post action=$form->{script}>
 |;
@@ -1648,6 +1642,7 @@ sub payment_footer {
     
       $media .= qq|</select>|;
       $format = qq|<select name=format>
+	      <option value=postscript $form->{DF}{postscript}>|.$locale->text('Postscript').qq|
 	      <option value=pdf $form->{DF}{pdf}>|.$locale->text('PDF').qq|</select>|;
     }
 
