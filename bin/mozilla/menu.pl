@@ -26,13 +26,26 @@ sub display {
 
   $form->header;
 
+  $callbacks = { 
+	'ar:ar_reports:ar_reports_transactions' => 'ar.pl?action=search&nextsub=transactions&level=AR--Reports--Transactions',
+	'ar:ar_reports:ar_reports_outstanding' => 'ar.pl?action=search&nextsub=transactions&outstanding=1&level=AR--Reports--Outstanding',
+	'ap:ap_reports:ap_reports_outstanding' => 'ap.pl?action=search&nextsub=transactions&outstanding=1&level=AP--Reports--Outstanding',
+  	'general_ledger:general_ledger_reports:general_ledger_reports_income_statement' => 'rp.pl?action=report&report=income_statement&level=General+Ledger--Reports--Income+Statement',
+  };
+
   print qq|
 
 <FRAMESET COLS="240,*" BORDER="1" bordercolor="#53626A">
+  <FRAME NAME="acc_menu" SRC="$form->{script}?login=$form->{login}&action=acc_menu&path=$form->{path}&js=$form->{js}&menuids=$form->{menuids}">
+|;
 
-  <FRAME NAME="acc_menu" SRC="$form->{script}?login=$form->{login}&action=acc_menu&path=$form->{path}&js=$form->{js}">
-  <FRAME NAME="main_window" SRC="am.pl?login=$form->{login}&action=$form->{main}&path=$form->{path}">
+  if ($form->{menuids}){
+    print qq|  <FRAME NAME="main_window" SRC="$callbacks->{$form->{menuids}}&login=$form->{login}&path=$form->{path}">|;
+  } else {
+    print qq|  <FRAME NAME="main_window" SRC="am.pl?login=$form->{login}&action=$form->{main}&path=$form->{path}">|;
+  }
 
+  print qq|
 </FRAMESET>
 
 </BODY>
@@ -185,9 +198,16 @@ sub js_menu {
   my @menuorder = $menu->access_control(\%myconfig, $level);
 
   while (@menuorder){
-    $i++;
+    #$i++;
     $item = shift @menuorder;
     $label = $item;
+    $i = lc $label;
+    $i =~ s/--/_/g;
+    $i =~ s/&//g;
+    $i =~ s/  /_/g;
+    $i =~ s/ /_/g;
+    $i =~ s/-/_/g;
+    $i =~ s/\//_/g;
     $label =~ s/.*--//g;
     $label = $locale->text($label);
 
