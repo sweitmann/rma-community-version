@@ -746,12 +746,13 @@ sub save {
  
   # no spaces or strange characters allowed in login name
   $form->error($locale->text('No space allowed for login!')) if $form->{login} =~ / /;
-  if ($form->{login} =~ /\W/) {
+    if ($form->{login} =~ /\W/) {
     $login = $form->{login};
     $login =~ s/\@//;
-    
-    $form->error($locale->text('login may only contain alphanumeric characters!')) if $login =~ /\W/;
+ 
+#    $form->error($locale->text('login may only contain alphanumeric characters!')) if $login =~ /\W/;
   }
+
   
   # check for duplicates
   if (!$form->{edit}) {
