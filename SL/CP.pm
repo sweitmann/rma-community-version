@@ -425,7 +425,7 @@ sub get_openinvoices {
   $form->remove_locks($myconfig, $dbh, $form->{arap});
   
   my $where = qq|WHERE a.$form->{vc}_id = $form->{"$form->{vc}_id"}
-	         AND a.amount != a.paid
+	         AND a.fxamount != a.fxpaid
 		 AND a.approved = '1'
 		 AND a.onhold = '0'
 		 AND NOT a.id IN (SELECT id
@@ -480,7 +480,7 @@ sub get_openinvoices {
   
   my $query = qq|SELECT DISTINCT a.id, a.invnumber, a.transdate, a.duedate,
                  a.description AS invdescription,
-		 a.amount, a.paid, a.curr, vc.$form->{vc}number, vc.name,
+		 a.amount, a.paid, a.fxamount, a.fxpaid, a.curr, vc.$form->{vc}number, vc.name,
 		 vc.language_code, vc.threshold, vc.curr AS currency,
 		 vc.payment_accno_id,
 		 a.$form->{vc}_id,
@@ -830,7 +830,6 @@ sub post_payment {
 		    $voucherid)|;
 	$dbh->do($query) || $form->dberror($query);
       }
-      
       # deduct tax for cash discount
       if ($form->{"discount_$i"}) {
 
@@ -921,14 +920,15 @@ sub post_payment {
 	  }
 	}
       }
-
+      
+      $fxpaid = $form->round_amount($form->{"paid_$i"}+$trans{$form->{"id_$i"}}{paid}/$trans{$form->{"id_$i"}}{exchangerate}, $form->{precision});
 
       $form->{"paid_$i"} = $form->round_amount($form->{"paid_$i"} * $trans{$form->{"id_$i"}}{exchangerate}, $form->{precision});
       $form->{"discount_$i"} = $form->round_amount($form->{"discount_$i"} * $trans{$form->{"id_$i"}}{exchangerate}, $form->{precision});
 
       # unlock arap
       $pth->finish;
-
+      
       $amount = $form->round_amount($trans{$form->{"id_$i"}}{paid} + $form->{"paid_$i"} + $form->{"discount_$i"}, $form->{precision});
 
       # if discount taxable adjust ar/ap amount
@@ -940,11 +940,55 @@ sub post_payment {
       $query = qq|UPDATE $form->{arap} set
                   amount = $trans{$form->{"id_$i"}}{amount},
 		  paid = $amount,
+          fxpaid = $fxpaid,
 		  datepaid = '$form->{datepaid}',
 		  bank_id = (SELECT id FROM chart WHERE accno = '$paymentaccno'),
 		  paymentmethod_id = $paymentmethod_id
 		  WHERE id = $form->{"id_$i"}|;
       $dbh->do($query) || $form->dberror($query);
+
+      my ($amount,$paid,$fxamount,$fxpaid) = $dbh->selectrow_array(qq|SELECT amount, paid, fxamount, fxpaid FROM ar WHERE id = $form->{"id_$i"}|);
+
+      if (($fxamount eq $fxpaid) and ($amount ne $paid) and ($form->{exchangerate} ne 1) ){
+        $correction = $form->round_amount($amount - $paid, $form->{precision});
+
+        $dbh->do(qq|UPDATE $form->{arap} SET paid = amount WHERE id = $form->{"id_$i"}|);
+
+        $query = qq|
+              update acc_trans 
+              set amount = amount + $correction 
+              where trans_id = $form->{"id_$i"}
+              and chart_id = $arap
+              and amount > 0 
+              and entry_id = (
+                select entry_id from acc_trans where trans_id = $form->{"id_$i"}
+                and chart_id in (select id from chart where link = '$form->{ARAP}') and amount > 0 limit 1
+                )
+        |;
+        $dbh->do($query) or $form->error($query);
+
+        my ($has_gain_or_loss) = $dbh->selectrow_array(qq|select count(*) from acc_trans where trans_id = $form->{"id_$i"} and chart_id in ($defaults{fxgain_accno_id}, $defaults{fxloss_accno_id})|);
+		if ( $has_gain_or_loss ) {
+          $query = qq|
+                update acc_trans 
+                set amount = amount - $correction 
+                where trans_id = $form->{"id_$i"}
+                and chart_id in ($defaults{fxgain_accno_id}, $defaults{fxloss_accno_id})
+                and entry_id = (
+                  select entry_id from acc_trans where trans_id = $form->{"id_$i"}
+                  and chart_id in ($defaults{fxgain_accno_id}, $defaults{fxloss_accno_id}) limit 1
+          		  )
+          |;
+          $dbh->do($query) or $form->dberror($query);
+        } else {
+          $correction = (-1)*$correction;
+          $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount,
+		            transdate, fx_transaction, approved, vr_id)
+		            VALUES ($form->{"id_$i"}, $defaults{fxloss_accno_id},
+			    $correction, '$form->{datepaid}', '1', '$approved', $voucherid)|;
+		  $dbh->do($query) || $form->dberror($query);
+        }
+      }
       
       %audittrail = ( tablename  => $form->{arap},
                       reference  => $form->{source},
@@ -953,7 +997,6 @@ sub post_payment {
 		      id         => $form->{"id_$i"} );
  
       $form->audittrail($dbh, "", \%audittrail);
-
 
       if ($form->{batch}) {
 	  # add voucher
