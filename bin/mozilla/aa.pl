@@ -1123,9 +1123,7 @@ sub form_footer {
             'Update'                => { ndx => 1,  key => 'U', value => $locale->text('Update') },
             'Print'                 => { ndx => 2,  key => 'P', value => $locale->text('Print') },
             'Post'                  => { ndx => 3,  key => 'O', value => $locale->text('Post') },
-            'Print and Post'        => { ndx => 4,  key => 'R', value => $locale->text('Print and Post') },
             'Post as new'           => { ndx => 5,  key => 'N', value => $locale->text('Post as new') },
-            'Print and Post as new' => { ndx => 6,  key => 'W', value => $locale->text('Print and Post as new') },
             'Schedule'              => { ndx => 7,  key => 'H', value => $locale->text('Schedule') },
             'New Number'            => { ndx => 10, key => 'M', value => $locale->text('New Number') },
             'Delete'                => { ndx => 11, key => 'D', value => $locale->text('Delete') },
@@ -1188,7 +1186,7 @@ sub update {
         @a     = ();
         for $i ( 1 .. $form->{rowcount} ) {
             $form->{"amount_$i"} = $form->parse_amount( \%myconfig, $form->{"amount_$i"} ) if !$form->{firsttime};
-            if ( $form->{"amount_$i"} ) {
+            if ( $form->{"amount_$i"} or $form->{"tax_$i"} ) {
                 push @a, {};
                 $j = $#a;
 
@@ -1215,10 +1213,12 @@ sub update {
             if ($form->{"tax_$_"}){
                ($taxaccno, $null) = split(/--/, $form->{"tax_$_"});
                if (!$form->{"linetaxamount_$_"} || $form->{"tax_$_"} ne $form->{"oldtax_$_"} || $form->{"amount_$_"} != $form->{"oldamount_$_"} || $form->{taxincluded} ne $form->{oldtaxincluded} ){
+                    if ($form->{"amount_$_"}){ # Calculate only when there is amount. Otherwise leave the user entered amount as it is.
                     if ($form->{taxincluded}){
                         $form->{"linetaxamount_$_"} = $form->{"amount_$_"} - $form->{"amount_$_"} / (1 + $form->{"${taxaccno}_rate"});
                     } else {
                         $form->{"linetaxamount_$_"} = $form->{"amount_$_"} * $form->{"${taxaccno}_rate"};
+                    }
                     }
                }
 
