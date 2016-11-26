@@ -1701,7 +1701,8 @@ sub print_form {
     $form->{subject} = qq|$form->{label} $form->{"${inv}number"}| unless $form->{subject};
 
     $form->{plainpaper} = 1;
-    $form->{OUT} = "$sendmail -f $form->{useremail}";
+    $form->{OUT} = "$sendmail";
+    # $form->{OUT} = "$sendmail -f $form->{useremail}"; # sind mails are with -t option of sendmail, -f does not make sence
 
     if ($form->{emailed} !~ /$form->{formname}/) {
       $form->{emailed} .= " $form->{formname}";
@@ -1790,7 +1791,7 @@ sub print_form {
 
   $form->format_string(qw(email cc bcc));
   
-  $form->parse_template(\%myconfig, $userspath) if $form->{copies};
+  $form->parse_template(\%myconfig, $userspath, $debuglatex) if $form->{copies};
 
 
   # if we got back here restore the previous form
