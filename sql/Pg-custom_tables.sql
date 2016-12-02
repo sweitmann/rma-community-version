@@ -140,3 +140,33 @@ CREATE TABLE dispatch (
 ALTER TABLE customer ADD dispatch_id INTEGER;
 ALTER TABLE vendor ADD dispatch_id INTEGER;
 
+--
+-- Table for generic text file import
+-- 
+CREATE TABLE generic_import (
+    id  serial,
+    c1  text,
+    c2  text,
+    c3  text,
+    c4  text,
+    c5  text,
+    c6  text,
+    c7  text,
+    c8  text,
+    c9  text,
+    c10 text,
+    c11 text,
+    c12 text,
+    c13 text,
+    c14 text,
+    c15 text,
+    c16 text,
+    c17 text,
+    c18 text,
+    c19 text,
+    c20 text
+);
+
+
+-- EOF
+

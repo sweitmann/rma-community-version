@@ -1487,6 +1487,60 @@ sub parts {
   chop $form->{ndx};
 }
 
+sub prepare_import_data {
+    my ( $self, $myconfig, $form ) = @_;
+
+    # connect to database
+    my $dbh = $form->dbconnect($myconfig);
+
+    my $query;
+    my $sth;
+    my $ref;
+
+    # clean out report
+    my $reportid = &delete_import( $dbh, $form );
+
+    $query = qq|DELETE FROM reportvars
+              WHERE reportid = $reportid|;
+    $dbh->do($query) || $form->dberror($query);
+
+    $query = qq|INSERT INTO reportvars (reportid, reportvariable, reportvalue)
+              VALUES ($reportid, ?, ?)|;
+    my $rth = $dbh->prepare($query) || $form->dberror($query);
+
+    my $i = 0;
+    my $j = 0;
+
+    my @d = split /\n/, $form->{data};
+    shift @d if !$form->{mapfile};
+
+    my @dl;
+
+    for (@d) {
+
+        @dl = &dataline($form);
+
+        if ($#dl) {
+            $i++;
+            for ( keys %{ $form->{ $form->{type} } } ) {
+                if ( defined $form->{ $form->{type} }->{$_}{ndx} ) {
+                    $form->{"${_}_$i"} = $dl[ $form->{ $form->{type} }->{$_}{ndx} ];
+                    if ( $form->{"${_}_$i"} ) {
+                        $rth->execute( "${_}_$i", $form->{"${_}_$i"} );
+                        $rth->finish;
+                    }
+                }
+            }
+        }
+        $form->{rowcount} = $i;
+
+    }
+
+    $dbh->disconnect;
+
+}
+
+
 sub accounts {
   my ($self, $myconfig, $form) = @_;
 

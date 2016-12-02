@@ -39,6 +39,7 @@ sub import {
 	     service => 'Services',
 	     partscustomer => 'Parts Customers',
 	     partsvendor => 'Parts Vendors',
+             generic => 'Generic Text File',
 	   );
 
 # $locale->text('Import Sales Invoices')
@@ -1961,6 +1962,182 @@ sub im_partscustomer {
   |;
 
 }
+
+sub im_generic {
+
+    &import_file;
+
+    $form->{callback} = "$form->{script}?action=import";
+    for (qw(type login path)) { $form->{callback} .= "&$_=$form->{$_}" }
+
+    @columns = qw(c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20);
+    for (@columns) {
+        $form->{ $form->{type} }{$_} = { field => $_, length => "", ndx => $i++ };
+    }
+
+    @column_index = qw(runningnumber ndx);
+
+    for ( sort { $form->{ $form->{type} }{$a}{ndx} <=> $form->{ $form->{type} }{$b}{ndx} } keys %{ $form->{ $form->{type} } } ) {
+        push @column_index, $_;
+    }
+
+    $column_data{runningnumber} = "&nbsp;";
+    $column_data{ndx}           = "&nbsp;";
+    for (@columns) { $column_data{$_} = $locale->text($_) }
+
+    $form->helpref( "import_$form->{type}", $myconfig{countrycode} );
+
+    $form->header;
+
+    print qq|
+<body>
+<form method=post action=$form->{script}>
+<table width=100%>
+  <tr>
+    <th class=listtop>$form->{helpref}$form->{title}</a></th>
+  </tr>
+  <tr height="5"></tr>
+  <tr>
+    <td>
+      <table width=100%>
+        <tr class=listheading>
+|;
+
+    for (@column_index) { print "\n<th>$column_data{$_}</th>" }
+
+    print qq|
+        </tr>
+|;
+
+    $form->{reportcode} = "import_$form->{type}";
+    IM->prepare_import_data( \%myconfig, \%$form );
+
+    for $i ( 1 .. $form->{rowcount} ) {
+
+        $j++;
+        $j %= 2;
+
+        print qq|
+      <tr class=listrow$j>
+|;
+
+        for (@column_index) {
+            $column_data{$_} = qq|<td>$form->{"${_}_$i"}</td>|;
+        }
+
+        $column_data{runningnumber} = qq|<td align=right>$i</td>|;
+        $column_data{ndx}           = qq|<td><input name="ndx_$i" type=checkbox class=checkbox checked></td>|;
+
+        for (@column_index) { print $column_data{$_} }
+
+        print qq|
+	</tr>
+|;
+    }
+
+    print qq|
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td><hr size=3 noshade></td>
+  </tr>
+</table>
+|;
+
+    $form->hide_form(qw(rowcount reportcode type login path callback));
+
+    print qq|
+<input name=action class=submit type=submit value="| . $locale->text('Import Generic') . qq|">
+</form>
+</body>
+</html>
+|;
+
+}
+
+sub import_generic {
+
+    IM->import_generic( \%myconfig, \%$form );
+
+    $form->info( $locale->text('Import successful!') );
+
+}
+
+sub im_partscustomer {
+
+    &import_file;
+    @column_index = qw(partnumber description customernumber name pricegroup pricebreak sellprice validfrom validto curr);
+    @flds         = @column_index;
+    push @flds, qw(parts_id customer_id pricegroup_id);
+    unshift @column_index, qw(runningnumber ndx);
+
+    $form->{callback} = "$form->{script}?action=import";
+    for (qw(type login path)) { $form->{callback} .= "&$_=$form->{$_}" }
+
+    &xrefhdr;
+
+    IM->partscustomer( \%myconfig, \%$form );
+
+    $column_data{runningnumber}  = "&nbsp;";
+    $column_data{partnumber}     = $locale->text('Part Number');
+    $column_data{description}    = $locale->text('Description');
+    $column_data{customernumber} = $locale->text('Customer Number');
+    $column_data{name}           = $locale->text('Customer Name');
+    $column_data{pricegroup}     = $locale->text('Price Group');
+    $column_data{pricebreak}     = $locale->text('Price Break');
+    $column_data{sellprice}      = $locale->text('Price');
+    $column_data{validfrom}      = $locale->text('From');
+    $column_data{validto}        = $locale->text('To');
+    $column_data{curr}           = $locale->text('Curr');
+
+    $form->header;
+
+    print qq|<body><form method=post action=$form->{script}>|;
+    print qq|<table width=100%>|;
+    print qq|<tr><th class=listtop>$form->{title}</th></tr>|;
+    print qq|<tr height="5"></tr><tr><td><table width=100%><tr class=listheading>|;
+    for (@column_index) { print "\n<th>$column_data{$_}</th>" }
+    print qq|</tr>|;
+
+    for $i ( 1 .. $form->{rowcount} ) {
+
+        $j++;
+        $j %= 2;
+
+        print qq|<tr class=listrow$j>|;
+        for (@column_index) { $column_data{$_} = qq|<td>$form->{"${_}_$i"}</td>| }
+
+        $column_data{runningnumber} = qq|<td align=right>$i</td>|;
+        if ( $form->{"parts_id_$i"} ) {    # and ($form->{"customer_id_$i"} or $form->{"pricegroup_id_$i"})){
+            $column_data{ndx} = qq|<td><input name="ndx_$i" type=checkbox class=checkbox value='1' checked></td>|;
+        }
+        else {
+            $column_data{ndx} = qq|<td>&nbsp;</td>|;
+        }
+
+        for (@column_index) { print $column_data{$_} }
+
+        print qq|</tr>|;
+        $form->hide_form( map { "${_}_$i" } @flds );
+    }
+
+    # print total
+    for (@column_index) { $column_data{$_} = qq|<td>&nbsp;</td>| }
+    print qq|<tr class=listtotal>|;
+    for (@column_index) { print "\n$column_data{$_}" }
+    print qq|</tr></table></td></tr><tr><td><hr size=3 noshade></td></tr></table>|;
+    $form->hide_form(qw(precision rowcount type login path callback));
+
+    print qq|<input name=action class=submit type=submit value="| . $locale->text('Import Parts Customers') . qq|">
+	</form></body></html>
+  |;
+
+}
+
+#=========================================
+
 
 #=========================================
 sub import_parts_customers {
