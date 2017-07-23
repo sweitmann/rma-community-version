@@ -90,7 +90,7 @@ sub new {
   $self->{menubar} = 1 if $self->{path} =~ /lynx/i;
 
   $self->{version} = "2.8.33";
-  $self->{dbversion} = "2.8.11";
+  $self->{dbversion} = "2.8.12";
 
   bless $self, $type;
   
@@ -255,8 +255,9 @@ sub error {
       $self->header(0,1);
     }
 
-	if ( $dbmsg ) {
-	   print qq|<body><h2 class=error>Error!</h2>|;
+	if ( $dbmsg && !$errormessages) {
+	   print qq|<body><h2 class=error>Error!</h2>;
+       <p><b class=dberror>$self->{dbmsg}</b>|;
 	}else {
 	   print qq|<body><h2 class=error>Error!</h2>
 	   <p><b>$self->{msg}</b>|;
@@ -266,7 +267,7 @@ sub error {
        <p><b class=dberror>$self->{dbmsg}</b>|;
     
 	}
-	print STDERR "Error: $msg\n$dbmsg\n";
+	print STDERR "Error ($errormessages): $msg\n$dbmsg\n";
     exit;
 
   }
@@ -737,7 +738,7 @@ sub parse_template {
       }
 
     $sum = 0 if (/<%resetcarriedforward%>/);
-      
+
       if (/<%foreach /) {
 	
 	# this one we need for the count
@@ -788,6 +789,7 @@ sub parse_template {
 		# and <%lastpage%>
 		
 		my $psum = $self->format_amount($myconfig, $sum, $self->{precision});
+		$pb =~ s/<%xml_sumcarriedforward%>/$sum/g;
 		$pb =~ s/<%sumcarriedforward%>/$psum/g;
 		$pb =~ s/<%lastpage%>/$current_page/g;
 		

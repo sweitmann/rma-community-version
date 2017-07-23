@@ -13,8 +13,9 @@
 
 # SQLI protection. This file looks clean
 
-package User;
+#######################################################################
 
+package User;
 
 sub new {
   my ($type, $memfile, $login) = @_;
@@ -81,24 +82,27 @@ sub country_codes {
 
 sub login {
   my ($self, $form, $userspath) = @_;
+  
+  $pw = $self->{password};
+  $enteredPw = $form->{encpassword};
 
   my $rc = -1;
   
   if ($self->{login} ne "") {
 
-    if ($self->{password} ne "") {
-      if ($self->{password} eq $form->{encpassword}) {
+    if ($pw ne "") {
+      if ($pw eq $enteredPw) {
       } else {
-        my $password = crypt $form->{password}, substr($self->{login}, 0, 2);
-        if ($self->{password} ne $password) {
-	      return -1;
-        }
+          my $password = crypt $form->{password}, substr($self->{login}, 0, 2);
+          if ($pw ne $password) {
+              return -1;
+          }
       }
     }
 
     $self->{password} = $form->{password};
     $self->create_config("$userspath/$self->{login}.conf");
-    
+
     $self->{password} = $form->{password};
       
     do "$userspath/$self->{login}.conf";
@@ -1060,6 +1064,7 @@ sub error {
   die "Error: $msg\n";
   
 }
+
 
 
 1;

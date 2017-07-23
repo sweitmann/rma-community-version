@@ -1429,6 +1429,7 @@ sub aging {
   my $null;
   my $ref;
   my $transdate = ($form->{overdue}) ? "duedate" : "transdate";
+  my $openAmountMultiplicator = ($form->{arap} eq 'ar') ? -1 : 1;
 
   $form->{vc} = 'vendor' if $form->{vc} ne 'customer'; # SQLI protection
 
@@ -1455,15 +1456,21 @@ sub aging {
   my $sortorder = ($form->{sort}) ? "ct.$form->{sort}" : "ct.name";
   
   # select outstanding vendors or customers, depends on $ct
+  $paidAmountCheck = 'AND a.paid != a.amount';
+  if($form->{payed}){
+  	$paidAmountCheck = qq|AND a.amount <> 0 AND (a.paid != a.amount or (a.datepaid is null or a.datepaid > |.$dbh->quote($form->{todate}).qq|))|;
+  }
   $query = qq|SELECT DISTINCT ct.id, ct.name, ct.$form->{vc}number,
               ct.language_code
               FROM $form->{vc} ct
 	      JOIN $form->{arap} a ON (a.$form->{vc}_id = ct.id)
 	      WHERE $where
-              AND a.paid != a.amount
+              |.$paidAmountCheck.qq|
               AND (a.$transdate <= |.$dbh->quote($form->{todate}).qq|)
               ORDER BY $sortorder|;
+
   my $sth = $dbh->prepare($query);
+
   $sth->execute || $form->dberror;
   
   my @ot = ();
@@ -1502,6 +1509,14 @@ sub aging {
 	AND a.approved = '1'
 	AND c.id = ?
 	AND a.curr = ?|;
+  
+  if($form->{payed}){
+  	$where = qq|
+	a.approved = '1'
+	AND ((a.amount = a.paid AND (SELECT MAX(acc.transdate) FROM acc_trans acc WHERE acc.trans_id = a.id) >= |.$dbh->quote($form->{todate}).qq|) OR a.amount <> a.paid OR a.datepaid > |.$dbh->quote($form->{todate}).qq| OR a.datepaid IS NULL)
+	AND c.id = ?
+	AND a.curr = ?|;
+  }
 	
   if ($department_id) {
     $where .= qq| AND a.department_id = |.$form->dbclean($department_id).qq||;
@@ -1518,6 +1533,19 @@ sub aging {
            c75 => { flds => '0.00 AS c0, 0.00 AS c15, 0.00 AS c30, 0.00 AS c45, 0.00 AS c60, (a.amount - a.paid) AS c75, 0.00 AS c90' },
            c90 => { flds => '0.00 AS c0, 0.00 AS c15, 0.00 AS c30, 0.00 AS c45, 0.00 AS c60, 0.00 AS c75, (a.amount - a.paid) AS c90' }
 	  );
+	  
+	  $upperCaseARAP = uc $form->dbclean($form->{arap});
+if($form->{payed}){
+	$openAmountQuery = qq| round(a.amount::numeric, 2) - round((coalesce((SELECT SUM(ac.amount) FROM acc_trans ac JOIN chart ch ON (ch.id = ac.chart_id) WHERE ac.trans_id = a.id and ac.transdate <= |.$dbh->quote($form->{todate}).qq| AND ac.approved = '1' AND (ch.link LIKE '%|.$upperCaseARAP.qq|_paid%' or ch.id in (select fldvalue::int from defaults where fldname in ('fxgain_accno_id','fxloss_accno_id')))), 0) * |.$openAmountMultiplicator.qq|)::numeric,2)|;
+  	 %c = (c0 => { flds => $openAmountQuery.qq| AS c0, 0.00 AS c15, 0.00 AS c30, 0.00 AS c45, 0.00 AS c60, 0.00 AS c75, 0.00 AS c90| },
+           c15 => { flds => qq| 0.00 AS c0, |.$openAmountQuery.qq| AS c15, 0.00 AS c30, 0.00 AS c45, 0.00 AS c60, 0.00 AS c75, 0.00 AS c90| },
+           c30 => { flds => qq| 0.00 AS c0, 0.00 AS c15, |.$openAmountQuery.qq| AS c30, 0.00 AS c45, 0.00 AS c60, 0.00 AS c75, 0.00 AS c90| },
+           c45 => { flds => qq| 0.00 AS c0, 0.00 AS c15, 0.00 AS c30, |.$openAmountQuery.qq| AS c45, 0.00 AS c60, 0.00 AS c75, 0.00 AS c90| },
+           c60 => { flds => qq| 0.00 AS c0, 0.00 AS c15, 0.00 AS c30, 0.00 AS c45, |.$openAmountQuery.qq| AS c60, 0.00 AS c75, 0.00 AS c90| },
+           c75 => { flds => qq| 0.00 AS c0, 0.00 AS c15, 0.00 AS c30, 0.00 AS c45, 0.00 AS c60, |.$openAmountQuery.qq| AS c75, 0.00 AS c90| },
+           c90 => { flds => qq| 0.00 AS c0, 0.00 AS c15, 0.00 AS c30, 0.00 AS c45, 0.00 AS c60, 0.00 AS c75, |.$openAmountQuery.qq| AS c90| }
+	  );
+  }
   
   my @c = ();
 
@@ -1591,7 +1619,7 @@ sub aging {
 
       @var = ();
       for (@c) { push @var, ($item->{id}, $curr) }
-      
+
       $sth->execute(@var);
 
       while ($ref = $sth->fetchrow_hashref(NAME_lc)) {
@@ -1730,7 +1758,7 @@ sub reminder {
 	      ct.firstname, ct.lastname, ct.salutation, ct.typeofcontact,
 	      current_date - a.duedate duedays,
 	      s.*,
-          bank.name bankname, bank.iban, bank.bic,
+          bank.name bankname, bank.iban, bank.bic bankbic,
           bank.dcn, bank.rvc, bank.membernumber,
           ad2.address1 bankaddress1, ad2.address2 bankaddress2, ad2.city bankcity,
           ad2.state bankstate, ad2.zipcode bankzipcode, ad2.country bankcountry

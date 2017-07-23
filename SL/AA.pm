@@ -107,8 +107,11 @@ sub post_transaction {
 
   my %amount = ();
   my $fxinvamount = 0;
+  my $linetax = '0';
   for (1 .. $form->{rowcount}) {
     $fxinvamount += $amount{fxamount}{$_} = $form->parse_amount($myconfig, $form->{"amount_$_"});
+    $form->{"linetaxamount_$_"} = $form->parse_amount($myconfig, $form->{"linetaxamount_$_"});
+    $linetax = '1' if $form->{"tax_$_"};
   }
 
   for (qw(taxincluded onhold)) { $form->{$_} *= 1 }
@@ -160,7 +163,11 @@ sub post_transaction {
 
       if ($form->{currency} ne $form->{defaultcurrency}) {
 	$amount = $amount{amount}{$i} - $amount{fxamount}{$i};
-	push @{ $form->{acc_trans}{lineitems} }, {
+
+    $fxlinetaxamount = $form->{"linetaxamount_$i"} * $form->{exchangerate};
+    $form->{"linetaxamount_$i"} = $fxlinetaxamount - $form->{"linetaxamount_$i"};
+
+    push @{ $form->{acc_trans}{lineitems} }, {
 	  accno => $accno,
 	  amount => $amount,
 	  project_id => $project_id,
@@ -313,6 +320,7 @@ sub post_transaction {
 	      netamount = $invnetamount * $arapml,
 	      fxamount = $fxinvamount,
 	      fxpaid = $fxpaid,
+          linetax = '$linetax',
 	      terms = |.$form->dbclean($form->{terms}).qq|,
 	      curr = |.$dbh->quote($form->{currency}).qq|,
 	      notes = |.$dbh->quote($form->{notes}).qq|,
@@ -366,13 +374,16 @@ sub post_transaction {
     $ref->{amount} = $form->round_amount($ref->{amount}, $form->{precision});
     if ($ref->{amount} or $ref->{taxamount}) {
       $ref->{taxamount} *= 1;
+      ($tax_accno, $null) = split /--/, $ref->{tax};
+      ($tax_chart_id) = $dbh->selectrow_array("SELECT id FROM chart WHERE accno = '$tax_accno'");
+      $tax_chart_id *= 1;
       $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount, transdate,
-		  project_id, memo, fx_transaction, cleared, approved, tax, taxamount)
+		  project_id, memo, fx_transaction, cleared, approved, tax, tax_chart_id, taxamount)
 		  VALUES ($form->{id}, (SELECT id FROM chart
 					WHERE accno = '$ref->{accno}'),
 		  $ref->{amount} * $ml * $arapml, '$form->{transdate}',
 		  $ref->{project_id}, |.$dbh->quote($ref->{description}).qq|,
-		  '$ref->{fx_transaction}', $ref->{cleared}, '$approved', '$ref->{tax}', $ref->{taxamount})|;
+		  '$ref->{fx_transaction}', $ref->{cleared}, '$approved', '$ref->{tax}', $tax_chart_id, $ref->{taxamount} * $ml * $arapml)|;
       $dbh->do($query) || $form->dberror($query);
     }
   }
@@ -577,6 +588,7 @@ sub post_transaction {
 
   # armaghan 13/05/2015 Fix for rounding issue
   if ($invamount eq $paid){
+          $multiplicator = ($form->{vc} eq 'vendor') ? -1 : 1;
           my $invamount2 = $dbh->selectrow_array("
               SELECT round(sum(amount)::numeric,2)
               FROM acc_trans ac
@@ -584,15 +596,21 @@ sub post_transaction {
               WHERE trans_id=$form->{id}
               AND c.link LIKE '$ARAP'
           ");
+          $invamount2 *= 1;
           if ($invamount2){
               my ($transdate) = $dbh->selectrow_array("select max(transdate) from acc_trans where trans_id = $form->{id}");
               ($accno) = split /--/, $form->{$ARAP};
               $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount, transdate, approved)
                     VALUES ($form->{id}, (SELECT id FROM chart WHERE accno = '$accno'),
-                    $invamount2 * -1 * $ml * $arapml, '$transdate', '$approved')|;
+                    $invamount2 * $ml * $arapml, '$transdate', '$approved')|;
               $dbh->do($query) || $form->dberror($query);
-              $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount, transdate, approved)
-                    VALUES ($form->{id}, $defaults{fxgain_accno_id}, $invamount2 * $ml * $arapml, '$transdate', '$approved')|;
+              if ($invamount2 > 0) {
+                $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount, transdate, approved)
+                VALUES ($form->{id}, $defaults{fxgain_accno_id}, $invamount2 * |.$multiplicator.qq| * $ml * $arapml, '$transdate', '$approved')|;
+              } else {
+                $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount, transdate, approved)
+                VALUES ($form->{id}, $defaults{fxloss_accno_id}, $invamount2 * |.$multiplicator.qq| * $ml * $arapml, '$transdate', '$approved')|;
+              }
               $dbh->do($query) || $form->dberror($query);
           }
   };

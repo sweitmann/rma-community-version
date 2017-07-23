@@ -366,7 +366,7 @@ sub create_links {
                     if ( $akey eq 'amount' ) {
                         $form->{"description_$i"} = $form->{acc_trans}{$key}->[ $i - 1 ]->{memo};
                         $form->{"tax_$i"} = $form->{acc_trans}{$key}->[ $i - 1 ]->{tax};
-                        $form->{"linetaxamount_$i"} = $form->{acc_trans}{$key}->[ $i - 1 ]->{taxamount};
+                        $form->{"linetaxamount_$i"} = $form->{acc_trans}{$key}->[ $i - 1 ]->{taxamount} * -1;
                         $form->{rowcount}++;
                         $netamount += $form->{"${akey}_$i"};
 
@@ -1161,6 +1161,33 @@ sub form_footer {
     if ( $form->{menubar} ) {
         require "$form->{path}/menu.pl";
         &menubar;
+    }
+
+    if ($form->{id} and $debits_credits_footer){
+        use DBIx::Simple;
+        my $dbh = $form->dbconnect(\%myconfig);
+        my $dbs = DBIx::Simple->connect($dbh);
+        $query = qq|
+                SELECT 
+                    ac.transdate, c.accno, c.description, 
+                    ac.amount, ac.source, ac.memo, 
+                    ac.fx_transaction, ac.cleared, ac.tax, 
+                    ac.taxamount, c.link, ac.chart_id, ac.tax_chart_id
+                FROM acc_trans ac
+                JOIN chart c ON (c.id = ac.chart_id)
+                WHERE ac.trans_id = ?
+                ORDER BY ac.transdate
+        |;
+
+        my $table = $dbs->query($query, $form->{id})->xto(
+            tr => { class => [ 'listrow0', 'listrow1' ] },
+            th => { class => ['listheading'] },
+        );
+        $table->modify(td => {align => 'right'}, 'amount');
+        $table->map_cell(sub {return $form->format_amount(\%myconfig, shift, 4) }, 'amount');
+        $table->set_group( 'transdate', 1 );
+        $table->calc_totals( [qw(amount)] );
+        print $table->output;
     }
 
     print qq|
@@ -2254,7 +2281,7 @@ sub transactions {
 
         }
 
-        $column_data{runningnumber} = "<td align=right>$i</td>";
+        $column_data{runningnumber} = "<td>$i</td>";
 
         for (qw(netamount amount paid debit credit)) { $column_data{$_} = "<td align=right>" . $form->format_amount( \%myconfig, $ref->{$_}, $form->{precision}, "&nbsp;" ) . "</td>" }
 
