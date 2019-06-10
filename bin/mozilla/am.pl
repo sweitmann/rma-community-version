@@ -2069,6 +2069,7 @@ sub taxes {
   my $i = 0;
   foreach my $ref (@{ $form->{taxrates} }) {
     $i++;
+    $form->{"taxaccno_$i"} = $ref->{accno};
     $form->{"taxrate_$i"} = $ref->{rate};
     $form->{"taxdescription_$i"} = $ref->{description};
     
@@ -2101,16 +2102,19 @@ sub display_taxes {
     <td>
       <table>
 	<tr>
-	  <th></th>
-	  <th>|.$locale->text('Rate').qq| (%)</th>
+          <th>|.$locale->text('Account Number').qq|</th>
+          <th>|.$locale->text('Account').qq|</th>
+	  <th>|.$locale->text('Rate').qq|</th>
 	  <th>|.$locale->text('Number').qq|</th>
 	  <th>|.$locale->text('Valid To').qq|</th>
 	</tr>
 |;
 
-  for (split(/ /, $form->{taxaccounts})) {
+  my @array = sort(split(/ /, $form->{taxaccounts}));
+  
+  foreach $ref (@array) {
     
-    my ($null, $i) = split /_/, $_;
+    my ($null, $i) = split /_/, $ref;
 
     $form->{"taxrate_$i"} = $form->format_amount(\%myconfig, $form->{"taxrate_$i"}, undef, 0);
     
@@ -2118,12 +2122,12 @@ sub display_taxes {
     
     print qq|
 	<tr>
-	  <th align=right>|;
+	  <th align=left>|;
 	  
     if ($form->{"taxdescription_$i"} eq $sametax) {
-      print "";
+      print "</th><th align=left>";
     } else {
-      print qq|$form->{"taxdescription_$i"}|;
+      print qq|$form->{"taxaccno_$i"}</th><th align=left>$form->{"taxdescription_$i"}|;
     }
     
     print qq|</th>
@@ -2194,7 +2198,7 @@ sub update_taxes {
       $accno = $ref->{accno};
       $taxdescription = $ref->{taxdescription};
     }
-    if ($i > 1 && $validto) {
+    if ($i >= 1 && $validto) {
       push @tax, { id => $id, accno => $accno, taxdescription => $taxdescription };
     }
   }
@@ -2232,6 +2236,7 @@ sub defaults {
   my %checked;
   
   $checked{cash} = "checked" if $form->{method} eq 'cash';
+  $checked{accrual} = "checked" if $form->{method} ne 'cash';
   $checked{cdt} = "checked" if $form->{cdt};
   $checked{linetax} = "checked" if $form->{linetax};
   $checked{name} = "checked";
@@ -2310,7 +2315,11 @@ sub defaults {
 	</tr>
 	<tr>
 	  <th align=right>|.$locale->text('Reporting Method').qq|</th>
-	  <td><input name=method class=checkbox type=checkbox value=cash $checked{cash}>&nbsp;|.$locale->text('Cash').qq|</td>
+	  <td><input name=method value="cash" type=radio $checked{cash}>
+	  <b>|.$locale->text('Cash').qq|</b>
+	  <input name=method value="" type=radio $checked{accrual}>
+	  <b>|.$locale->text('Accrual').qq|</b>
+	  </td>
 	</tr>
 	<tr>
 	  <th align=right>|.$locale->text('Cash Discount').qq|</th>
@@ -2432,6 +2441,10 @@ sub defaults {
 	<tr>
 	  <th align=right nowrap>|.$locale->text('Selected Account').qq|</th>
 	  <td><input name=selectedaccount size=15 value="$form->{selectedaccount}"></td>
+	</tr>
+	<tr>
+	  <th align=right nowrap>|.$locale->text('Transition Account').qq|</th>
+	  <td><input name=transitionaccount size=15 value="$form->{transitionaccount}"></td>
 	</tr>
       </table>
     </td>
@@ -2660,9 +2673,9 @@ sub save_taxes {
     ($accno, $i) = split /_/, $_;
     if ($accno eq $sameaccno && $i > 1) {
       $j = $i - 1;
-      if (! $form->{"validto_$j"}) {
-	$form->error($locale->text('Valid To date missing for').qq| $form->{"taxdescription_$j"}|);
-      }
+      #if (! $form->{"validto_$j"}) {
+	  #  $form->error($locale->text('Valid To date missing for').qq| $form->{"taxdescription_$j"}|);
+      #}
     }
     $sameaccno = $accno;
   }
@@ -2717,6 +2730,23 @@ sub backup {
 
 }
 
+sub backup_templates {
+
+  if ($form->{media} eq 'email') {
+    $form->error($locale->text('No email address for')." $myconfig{name}") unless ($myconfig{email});
+    
+    $form->{OUT} = "$sendmail";
+
+  }
+
+  $SIG{INT} = 'IGNORE';
+  AM->backup_templates(\%myconfig, \%$form, $userspath, $gzip);
+
+  if ($form->{media} eq 'email') {
+    $form->redirect($locale->text('Backup sent to').qq| $myconfig{email}|);
+  }
+
+}
 
 
 sub audit_control {
@@ -2726,7 +2756,7 @@ sub audit_control {
   AM->closedto(\%myconfig, \%$form);
   
   my %checked;
-  for (qw(revtrans audittrail aruniq apuniq gluniq souniq pouniq trackingitemsuniq nontrackingitemsuniq)) { $checked{$_} = "checked" if $form->{$_} }
+  for (qw(revtrans audittrail aruniq apuniq gluniq souniq pouniq trackingitemsuniq nontrackingitemsuniq extendedlog)) { $checked{$_} = "checked" if $form->{$_} }
  
   $form->header;
   
@@ -2752,6 +2782,10 @@ sub audit_control {
 	<tr>
 	  <th align=right>|.$locale->text('Activate Audit trail').qq|</th>
 	  <td><input name=audittrailview class=checkbox type=checkbox value="1" $checked{audittrail} disabled="disabled"></td>
+	</tr>
+	<tr>
+	  <th align=right>|.$locale->text('Activate Extended Log').qq|</th>
+	  <td><input name=extendedlog class=checkbox type=checkbox value="1" $checked{extendedlog}></td>
 	</tr>
 	<input name=audittrail type=hidden value="1">
 	<!-- <tr>
@@ -3235,10 +3269,10 @@ sub company_logo {
 </pre>
 <div class="mainpage">
 <center>
-<a class="mainpageref" href="http://www.runmyaccounts.com" target=_blank><img src=$images/sql-ledger.gif border=0></a>
+<a class="mainpageref" href="http://www.runmyaccounts.com" target="_blank"><img src=$images/sql-ledger.gif border=0></a>
 <h1 class=login>|.$locale->text('Version').qq| $release</h1>
 <p>
-<a class="roadmapref" href="$roadmap" target=_blank>roadmap</a>
+<a class="roadmapref" href="$roadmap" target="_blank">roadmap</a>
 </p>
 <br/>
 <h1 class=login>
@@ -3716,6 +3750,9 @@ sub process_transactions {
 	      $ok = IR->post_invoice(\%myconfig, \%$form);
 	    }
 	  } else {
+      for (1 .. $form->{rowcount}) {
+        $form->{"linetaxamount_$_"} = $form->format_amount(\%myconfig, $form->{"linetaxamount_$_"});
+      }
 	    $form->info("\n".$locale->text('Posting')." ".$locale->text('Transaction')." $form->{invnumber} ... ");
 	    $ok = AA->post_transaction(\%myconfig, \%$form);
 	  }

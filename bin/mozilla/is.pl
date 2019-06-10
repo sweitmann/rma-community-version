@@ -341,7 +341,7 @@ sub form_header {
 
   my $vcdetail;
   if ($form->{"$form->{vc}"}){
-    $vcdetail = qq|<a href="ct.pl?login=$form->{login}&path=$form->{path}&action=edit&db=$form->{vc}&id=$form->{"$form->{vc}_id"}" target=_blank>?</a>|;
+    $vcdetail = qq|<a href="ct.pl?login=$form->{login}&path=$form->{path}&action=edit&db=$form->{vc}&id=$form->{"$form->{vc}_id"}" target="_blank">?</a>|;
   }
   if ($form->{"select$form->{vc}"}) {
     # Add customer link
@@ -649,7 +649,7 @@ sub form_footer {
 	$tax .= qq|
 	      <tr>
 		<th align=right>$form->{"${_}_description"}</th>
-		<td align=right>|.$form->format_amount(\%myconfig, $form->{"${_}_total"}, $form->{precision}).qq|</td>
+		<td id=total_tax_${_} align=right>|.$form->format_amount(\%myconfig, $form->{"${_}_total"}, $form->{precision}).qq|</td>
 	      </tr>
 |;
       }
@@ -660,7 +660,7 @@ sub form_footer {
   $subtotal = qq|
 	      <tr>
 		<th align=right>|.$locale->text('Subtotal').qq|</th>
-		<td align=right>|.$form->format_amount(\%myconfig, $form->{invsubtotal}, $form->{precision}, 0).qq|</td>
+		<td id=subtotal align=right>|.$form->format_amount(\%myconfig, $form->{invsubtotal}, $form->{precision}, 0).qq|</td>
 	      </tr>
 |;
 
@@ -794,7 +794,7 @@ sub form_footer {
 	      $tax
 	      <tr>
 		<th align=right>|.$locale->text('Total').qq|</th>
-		<td align=right>$form->{invtotal}</td>
+		<td id=total align=right>$form->{invtotal}</td>
 	      </tr>
 	    </table>
 	  </td>
@@ -965,6 +965,65 @@ sub form_footer {
         $table->set_group( 'transdate', 1 );
         $table->calc_subtotals( [qw(amount)] );
         $table->calc_totals( [qw(amount)] );
+        print $table->output;
+
+        #
+        # LOG
+        #
+        $form->info($locale->text('Invoice header log ...'));
+        $table = lc $form->{ARAP};
+        $query = qq|
+                SELECT TO_CHAR(ts, 'MM/DD/YY HH24:MI:SS') ts, a.invnumber, a.transdate, a.customer_id, a.amount, a.netamount, a.paid, a.notes, a.intnotes
+                FROM ar_log a
+                WHERE id = ?
+                ORDER BY ts DESC
+        |;
+        $table = $dbs->query($query, $form->{id})->xto(
+            tr => { class => [ 'listrow0', 'listrow1' ] },
+            th => { class => ['listheading'] },
+        );
+        print $table->output;
+
+        $query = qq|
+                SELECT
+                    TO_CHAR(i.ts, 'MM/DD/YY HH24:MI:SS') ts,
+                    i.description, i.qty, i.sellprice
+                FROM invoice_log i
+                WHERE i.trans_id = ?
+                ORDER BY i.ts DESC, i.id
+        |;
+        $table = $dbs->query($query, $form->{id})->xto(
+            tr => { class => [ 'listrow0', 'listrow1' ] },
+            th => { class => ['listheading'] },
+        );
+        $table->modify(td => {align => 'right'}, [qw(qty sellprice)]);
+        $table->map_cell(sub {return $form->format_amount(\%myconfig, shift, 4) }, [qw(qty sellprice)]);
+        $table->set_group( 'ts', 1 );
+        $form->info($locale->text('Invoice lines log ...'));
+        print $table->output;
+
+        $query = qq|
+                SELECT
+                    TO_CHAR(ts, 'MM/DD/YY HH24:MI:SS') ts,
+                    ac.transdate, c.accno, c.description,
+                    ac.amount, ac.source, ac.memo,
+                    ac.fx_transaction, ac.cleared, ac.tax,
+                    ac.taxamount, ac.vr_id
+                FROM acc_trans_log ac
+                JOIN chart c ON (c.id = ac.chart_id)
+                WHERE ac.trans_id = ?
+                ORDER BY ac.ts DESC, ac.vr_id
+        |;
+
+        $table = $dbs->query($query, $form->{id})->xto(
+            tr => { class => [ 'listrow0', 'listrow1' ] },
+            th => { class => ['listheading'] },
+        );
+        $table->modify(td => {align => 'right'}, 'amount');
+        $table->map_cell(sub {return $form->format_amount(\%myconfig, shift, 4) }, 'amount');
+        $table->set_group( 'ts', 1 );
+        $table->calc_totals( [qw(amount)] );
+        $form->info($locale->text('Invoice GL log ...'));
         print $table->output;
     }
   
@@ -1310,6 +1369,50 @@ sub yes {
     $form->error($locale->text('Cannot delete invoice!'));
   }
 
+}
+
+sub view {
+    $form->header;
+
+    $db = lc $form->{ARAP};
+    $vc = $form->{vc};
+
+    use DBIx::Simple;
+    my $dbh = $form->dbconnect(\%myconfig);
+    my $dbs = DBIx::Simple->connect($dbh);
+
+    $query = qq|
+            SELECT * 
+            FROM ar_log a
+            WHERE a.ts = ?
+            ORDER BY a.ts
+    |;
+
+    my $table = $dbs->query($query, $form->{ts})->xto(
+        tr => { class => [ 'listrow0', 'listrow1' ] },
+        th => { class => ['listheading'] },
+    );
+    $table->modify(td => {align => 'right'}, 'amount');
+    $table->map_cell(sub {return $form->format_amount(\%myconfig, shift, 4) }, 'amount');
+
+    print $table->output;
+
+    $query = qq|
+            SELECT * 
+            FROM acc_trans_log ac
+            WHERE ac.ts = ?
+            ORDER BY ac.ts
+    |;
+    $table = $dbs->query($query, $form->{ts})->xto(
+        tr => { class => [ 'listrow0', 'listrow1' ] },
+        th => { class => ['listheading'] },
+    );
+    $table->modify(td => {align => 'right'}, 'amount');
+    $table->map_cell(sub {return $form->format_amount(\%myconfig, shift, 4) }, 'amount');
+    $table->set_group( 'transdate', 1 );
+    $table->calc_totals( [qw(amount)] );
+
+    print $table->output;
 }
 
 

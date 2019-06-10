@@ -19,6 +19,8 @@ use SL::User;
 
 
 $form = new Form;
+my $form_method = 'post';
+#my $form_method = 'get'; # For testing purposes; to see produced URLs
 
 $locale = new Locale $language, "admin";
 $form->{charset} = $locale->{charset};
@@ -90,10 +92,10 @@ function sf(){
 
 <div align=center>
 
-<a href="http://www.sql-ledger.org"><img src=$images/sql-ledger.gif border=0 target=_blank></a>
+<a href="http://www.sql-ledger.org"><img src=$images/sql-ledger.gif border=0 target="_blank"></a>
 <h1 class=login>|.$locale->text('Version').qq| $form->{version}<p>|.$locale->text('Administration').qq|</h1>
 
-<form method=post action="$form->{script}">
+<form method="$form_method" action="$form->{script}">
 
 <table>
   <tr>
@@ -107,7 +109,7 @@ function sf(){
 
 </form>
 
-<a href=http://www.sql-ledger.org target=_blank>Run my Accounts |.$locale->text('website').qq|</a>
+<a href=http://www.sql-ledger.org target="_blank">Run my Accounts |.$locale->text('website').qq|</a>
 
 </div>
 
@@ -289,7 +291,7 @@ sub list_users {
   print qq|
 <body class=admin>
 
-<form method=post action=$form->{script}>
+<form method="$form_method" action=$form->{script}>
 
 <table width=100%>
   <tr>
@@ -353,8 +355,9 @@ $dbdrivers
 $nologin
 $software
 
-<input type=submit class=submit name=action value="|.$locale->text('Logout').qq|">
-
+<input type=submit class=submit name=action value="|.$locale->text('Logout').qq|">|
+#    . admin_button("Testpage", "testing/admin")
+    .qq|
 </form>
 
 |.$locale->text('Click on login name to edit!').qq|
@@ -367,6 +370,30 @@ $software
 
 }
 
+
+sub admin_button {
+    my ($label, $path) = @_;
+
+    # $ENV{SCRIPT_NAME} could be
+    #   /admin.pl
+    #   /rmac/admin.pl
+    #   /rmac/community/admin.pl
+    #   ...
+    # We need the URL prefix.
+    
+    my $content_prefix = $ENV{SCRIPT_NAME};
+    $content_prefix =~ s|/admin\.pl$||;
+    
+    return "\n" .
+        qq|<button type="submit" class="submit" | .
+        qq|name="login" value="root login" | .
+        qq|formmethod="$form_method" | .
+        qq|formaction="$content_prefix/mojo.pl/$path">| .
+        $locale->text($label) .
+        qq|</button>\n|;
+
+    # Localization: see locale/*/admin
+}
 
 
 sub form_header {
@@ -455,7 +482,7 @@ sub form_header {
   print qq|
 <body class=admin>
 
-<form method=post action=$form->{script}>
+<form method="post" action=$form->{script}>
 
 <table width=100%>
   <tr class=listheading><th colspan=2>$form->{title}</th></tr>
@@ -989,7 +1016,7 @@ sub change_admin_password {
   print qq|
 <body class=admin>
 
-<form method=post action=$form->{script}>
+<form method="$form_method" action=$form->{script}>
 
 <table>
   <tr>
@@ -1198,7 +1225,7 @@ sub dbselect_source {
 <center>
 <h2>$form->{title}</h2>
 
-<form method=post action=$form->{script}>
+<form method="$form_method" action=$form->{script}>
 
 <table>
   <tr>
@@ -1242,7 +1269,9 @@ sub dbselect_source {
 <input type=submit class=submit name=action value="|.$locale->text('Create Dataset').qq|">
 <input type=submit class=submit name=action value="|.$locale->text('Update Dataset').qq|">
 <input type=submit class=submit name=action value="|.$locale->text('Delete Dataset').qq|">
-
+|
+    . admin_button("Backup/Restore", "db_mgmt/admin/backup_restore")
+    . qq|
 </form>
 
     </td>
@@ -1297,7 +1326,7 @@ sub update_dataset {
 
     print qq|
 <table width=100%>
-<form method=post action=$form->{script}>
+<form method="$form_method" action=$form->{script}>
 |;
 
     $form->{callback} = "$form->{script}?action=list_users&path=$form->{path}";
@@ -1412,7 +1441,7 @@ sub create_dataset {
 <center>
 <h2>$form->{title}</h2>
 
-<form method=post action=$form->{script}>
+<form method="$form_method" action=$form->{script}>
 
 <table width=100%>
   <tr class=listheading>
@@ -1530,7 +1559,7 @@ sub dbcreate {
 <center>
 <h2>$form->{title}</h2>
 
-<form method=post action=$form->{script}>|
+<form method="$form_method" action=$form->{script}>|
 
 .$locale->text('Dataset')." $form->{db} ".$locale->text('successfully created!')
 
@@ -1571,7 +1600,7 @@ sub delete_dataset {
 
 <h2>$form->{title}</h2>
 
-<form method=post action=$form->{script}>
+<form method="$form_method" action=$form->{script}>
 
 <table width=100%>
   <tr class=listheading>
@@ -1636,7 +1665,7 @@ sub dbdelete {
 <center>
 <h2>$form->{title}</h2>
 
-<form method=post action=$form->{script}>
+<form method="$form_method" action=$form->{script}>
 
 $form->{db} |.$locale->text('successfully deleted!')
 
@@ -1698,7 +1727,7 @@ $msg
 <center>
 <h2>$form->{title}</h2>
 
-<form method="post" action="$script">
+<form method="$form_method" action="$script">
 <input type="hidden" name="path" value="$form->{path}">
 <input type="hidden" name="callback" value="$script?action=list_users&path=$form->{path}">
 <table>
@@ -1756,7 +1785,7 @@ sub update_software {
   print qq|
 <pre>
 
-<form action="$script">
+<form method="$form_method" action="$script">
 <input type="hidden" name="path" value="$form->{path}">
 <input type="hidden" name="nextsub" value="software_administration">
 <input type="submit" class="submit" name="action" value="|.$locale->text('Continue').qq|">

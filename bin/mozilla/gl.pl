@@ -355,6 +355,18 @@ sub search {
     $includeinreport{contra} = { ndx => $i++, checkbox => 1, html => qq|<input name="l_contra" class=checkbox type=checkbox value=Y $form->{l_contra}>|, label => $locale->text('Contra') };
     $includeinreport{intnotes} =
       { ndx => $i++, checkbox => 1, html => qq|<input name="l_intnotes" class=checkbox type=checkbox value=Y $form->{l_intnotes}>|, label => $locale->text('Internal Notes') };
+    $includeinreport{include_log} =
+      { ndx => $i++, checkbox => 1, html => qq|<input name="include_log" class=checkbox type=checkbox value=Y $form->{include_log}>|, label => $locale->text('Include Log') };
+    $includeinreport{ts} =
+      { ndx => $i++, checkbox => 1, html => qq|<input name="l_ts" class=checkbox type=checkbox value=Y $form->{l_ts}>|, label => $locale->text('TS') };
+    $includeinreport{curr} =
+      { ndx => $i++, checkbox => 1, html => qq|<input name="l_curr" class=checkbox type=checkbox value=Y $form->{l_curr}>|, label => $locale->text('Currency') };
+    $includeinreport{exchangerate} =
+      { ndx => $i++, checkbox => 1, html => qq|<input name="l_exchangerate" class=checkbox type=checkbox value=Y $form->{l_exchangerate}>|, label => $locale->text('Exchange rate') };
+    $includeinreport{tax} =
+      { ndx => $i++, sort => tax, checkbox => 1, html => qq|<input name="l_tax" class=checkbox type=checkbox value=Y $form->{l_tax}>|, label => $locale->text('Tax') };
+    $includeinreport{taxamount} =
+      { ndx => $i++, checkbox => 1, html => qq|<input name="l_taxamount" class=checkbox type=checkbox value=Y $form->{l_taxamount}>|, label => $locale->text('Tax Amount') };
 
     @f = ();
     $form->{flds} = "";
@@ -372,6 +384,8 @@ sub search {
 
     $form->header;
 
+	my $title = $locale->text('General Ledger');
+
     #JS->change_report(\%$form, \@input, \@checked, \%radio);
 
     print qq|
@@ -379,7 +393,9 @@ sub search {
 |;
 
     print qq|
-<form method=post action=$form->{script}>
+<form method=get action=$form->{script}>
+<input type="hidden" name="auth_token" value="<%auth_token%>" />
+<input type="hidden" name="title" value="$title" /> 
 
 <table width=100%>
   <tr>
@@ -489,6 +505,7 @@ sub search {
 		    <tr>
 		      <td nowrap><input name="l_subtotal" class=checkbox type=checkbox value=Y>&nbsp;| . $locale->text('Subtotal') . qq|</td>
               <td><input type=checkbox class=checkbox name=fx_transaction value=1 checked> |.$locale->text('Exchange Rate Difference').qq|</td>
+              <td><input type=checkbox class=checkbox name=filter_amounts value=1> |.$locale->text('Filter Amounts').qq|</td>
 		      <td><input name="l_csv" class=checkbox type=checkbox value=Y>&nbsp;| . $locale->text('CSV') . qq|</td>
 		    </tr>
 		  </table>
@@ -538,6 +555,14 @@ sub transactions {
 
     $form->isvaldate(\%myconfig, $form->{datefrom}, $locale->text('Invalid from date ...'));
     $form->isvaldate(\%myconfig, $form->{dateto}, $locale->text('Invalid to date ...'));
+
+    for (qw(amountfrom amountto)){ $form->{$_} = $form->parse_amount( \%myconfig, $form->{$_} ) }
+
+    # currencies
+    $form->{currencies} = $form->get_currencies(0, \%myconfig);
+    @curr = split /:/, $form->{currencies};
+    $form->{defaultcurrency} = $curr[0];
+    chomp $form->{defaultcurrency};
 
     $form->{amountfrom} *= 1;
     $form->{amountto} *= 1;
@@ -593,13 +618,13 @@ sub transactions {
     GL->transactions( \%myconfig, \%$form );
 
     $href = "$form->{script}?action=transactions";
-    for (qw(direction oldsort path login month year interval reportlogin fx_transaction)) { $href .= "&$_=$form->{$_}" }
+    for (qw(direction oldsort path login month year interval reportlogin fx_transaction include_log l_ts)) { $href .= "&$_=$form->{$_}" }
     for (qw(report flds))                                                  { $href .= "&$_=" . $form->escape( $form->{$_} ) }
 
     $form->sort_order();
 
     $callback = "$form->{script}?action=transactions";
-    for (qw(direction oldsort path login month year interval reportlogin fx_transaction)) { $callback .= "&$_=$form->{$_}" }
+    for (qw(direction oldsort path login month year interval reportlogin fx_transaction include_log l_ts filter_amounts)) { $callback .= "&$_=$form->{$_}" }
     for (qw(report flds))                                                  { $callback .= "&$_=" . $form->escape( $form->{$_} ) }
 
     %acctype = (
@@ -610,6 +635,8 @@ sub transactions {
         'E' => $locale->text('Expense'),
     );
 
+    $href .= "&title=" . $form->escape( $locale->text('General Ledger') );
+    
     $form->{title} = $locale->text('General Ledger') . " / $form->{company}";
 
     $ml = ( $form->{category} =~ /(A|E)/ ) ? -1 : 1;
@@ -757,6 +784,16 @@ sub transactions {
         push @columns, $column;
         $column_data{$column} = $label;
         $column_sort{$column} = $sort;
+        $column_align{$column} = 'left';
+    }
+    $column_align{debit} = 'right';
+    $column_align{credit} = 'right';
+    $column_align{exchangerate} = 'right';
+    
+    if ($form->{include_log}){
+        $form->{l_log} = 'Y';
+        push @columns, 'log';
+        $column_data{log} = qq|&nbsp;|;
     }
 
     push @columns, "gifi_contra";
@@ -857,33 +894,46 @@ sub transactions {
     $callback .= "&column_index=" . $form->escape( $form->{column_index} );
 
     $href     .= "&category=$form->{category}";
+    
     $callback .= "&category=$form->{category}";
 
     $form->helpref( "list_gl_transactions", $myconfig{countrycode} );
 
     $form->header;
 
+    my $today = $form->today(\%myconfig);
+
     print qq|
 <body>
 
-<div align="center" class="redirectmsg">$form->{redirectmsg}</div>
+<button onclick="window.parent.postMessage({name: 'ledgerEvent', params: {event: 'urlToPdf', url: window.location.href}}, '*')" class="noprint nkp" style="background-color: white; cursor: pointer; position: fixed; top: 5px; right: 5px; height: 30px; width: 30px; margin: 0; padding: 0; outline: none; border: none; -webkit-appearance: none;">
+  <img style="max-width: 100%" src="https://my.runmyaccounts.com/assets/img/file-icons/icons8-pdf-96.png">
+</button>
+
+<div align="center" class="redirectmsg noprint">$form->{redirectmsg}</div>
+<div class="printonly"><span class="creation-date">$today</span></div>
+
+<div class="printonly">
+<span class="page-topleft">$form->{company}</span>
+<span class="page-topright">$option</span>
+</div>
 
 <table width=100%>
   <tr>
     <th class=listtop>$form->{helpref}$form->{title}</a></th>
   </tr>
-  <tr height="5"></tr>
-  <tr>
+  <tr class="noprint" height="5"></tr>
+  <tr class="noprint">
     <td>$option</td>
   </tr>
   <tr>
     <td>
-      <table width=100%>
+      <table class="report-table" width=100%>
 |;
 
     $l = $#column_index;
 
-    print qq|<tr>
+    print qq|<thead><tr class="table-sorting noprint">
 |;
 
     if ( !( $form->{accno} || $form->{gifi_accno} ) ) {
@@ -892,18 +942,18 @@ sub transactions {
             $direction = ( $form->{direction} eq 'DESC' ) ? "ASC" : "DESC";
             $revhref =~ s/direction=$direction/direction=$form->{direction}/;
 
-            print "\n<td align=center><a href=$revhref&movecolumn=$column_index[0],right><img src=$images/right.png border=0></a></td>";
+            print "\n<td align=$column_align{$column_index[0]}><a href=$revhref&movecolumn=$column_index[0],right><img src=$images/right.png border=0></a></td>";
             for ( 1 .. $l - 1 ) {
                 print
-"\n<td align=center><a href=$revhref&movecolumn=$column_index[$_],left><img src=$images/left.png border=0></a><a href=$href&movecolumn=$column_index[$_],right><img src=$images/right.png border=0></a></td>";
+"\n<td align=$column_align{$column_index[$_]}><a href=$revhref&movecolumn=$column_index[$_],left><img src=$images/left.png border=0></a><a href=$href&movecolumn=$column_index[$_],right><img src=$images/right.png border=0></a></td>";
             }
-            print "\n<td align=center><a href=$revhref&movecolumn=$column_index[$l],left><img src=$images/left.png border=0></a></td>";
+            print "\n<td align=$column_align{$column_index[$_]}><a href=$revhref&movecolumn=$column_index[$l],left><img src=$images/left.png border=0></a></td>";
         }
     }
 
     print qq|
         </tr>
-	<tr class=listheading>
+	    <tr class=listheading>
 |;
 
     for ( 0 .. $l ) {
@@ -911,21 +961,21 @@ sub transactions {
             $sort = "";
             if ( $form->{sort} eq $column_sort{ $column_index[$_] } ) {
                 if ( $form->{direction} eq 'ASC' ) {
-                    $sort = qq|<img src=$images/up.png>&nbsp;&nbsp;&nbsp;|;
+                    $sort = qq|<span class="noprint"><img src=$images/up.png>&nbsp;&nbsp;&nbsp;</span>|;
                 }
                 else {
-                    $sort = qq|<img src=$images/down.png>&nbsp;&nbsp;&nbsp;|;
+                    $sort = qq|<span class="noprint"><img src=$images/down.png class="noprint" >&nbsp;&nbsp;&nbsp;</span>|;
                 }
             }
-            print qq|\n<th nowrap>$sort<a class=listheading href=$href&sort=$column_sort{$column_index[$_]}>$column_data{$column_index[$_]}</a></th>|;
+            print qq|\n<th align=$column_align{$column_index[$_]} nowrap>$sort<a class=listheading href=$href&sort=$column_sort{$column_index[$_]}>$column_data{$column_index[$_]}</a></th>|;
         }
         else {
-            print qq|\n<th nowrap class=listheading>$column_data{$column_index[$_]}</th>|;
+            print qq|\n<th align=$column_align{$column_index[$_]} nowrap class=listheading>$column_data{$column_index[$_]}</th>|;
         }
     }
 
     print qq|
-        </tr>
+        </tr></thead>
 |;
 
     # add sort to callback
@@ -985,36 +1035,48 @@ sub transactions {
 
         $ref->{debit}  = $form->format_amount( \%myconfig, $ref->{debit},  $form->{precision}, "&nbsp;" );
         $ref->{credit} = $form->format_amount( \%myconfig, $ref->{credit}, $form->{precision}, "&nbsp;" );
+        $ref->{taxamount} = $form->format_amount( \%myconfig, $ref->{taxamount}, $form->{precision}, "&nbsp;" );
+        $ref->{exchangerate} = $form->format_amount( \%myconfig, $ref->{exchangerate}, 8, "&nbsp;" );
 
-        $column_data{id}        = "<td>$ref->{id}</td>";
-        $column_data{transdate} = "<td nowrap>$ref->{transdate}</td>";
+        $column_data{id}        = "<td align=left>$ref->{id}</td>";
+        $column_data{transdate} = "<td align=left>$ref->{transdate}</td>";
 
         $ref->{reference} ||= "&nbsp;";
-        $column_data{reference} = "<td><a href=$ref->{module}.pl?action=edit&id=$ref->{id}&path=$form->{path}&login=$form->{login}&callback=$callback>$ref->{reference}</a></td>";
+        $column_data{reference} = "<td align=left><a href=$ref->{module}.pl?action=edit&id=$ref->{id}&path=$form->{path}&login=$form->{login}&callback=$callback>$ref->{reference}</a></td>";
+        if ($ref->{log} eq '*'){
+            $column_data{reference} = "<td align=left><a href=$ref->{module}.pl?action=view&id=$ref->{id}&ts=".$form->escape($ref->{ts})."&path=$form->{path}&login=$form->{login}&callback=$callback>$ref->{reference}</td>";
+        }
 
-        for (qw(department projectnumber name vcnumber address)) { $column_data{$_} = "<td>$ref->{$_}&nbsp;</td>" }
+        for (qw(tax department projectnumber name vcnumber address)) { $column_data{$_} = "<td align=left>$ref->{$_}&nbsp;</td>" }
 
         for (qw(lineitem description source memo notes intnotes)) {
             $ref->{$_} =~ s/\r?\n/<br>/g;
-            $column_data{$_} = "<td>$ref->{$_}&nbsp;</td>";
+            $column_data{$_} = "<td align=left>$ref->{$_}&nbsp;</td>";
         }
 
         if ( $ref->{vc_id} ) {
-            $column_data{name} = "<td><a href=ct.pl?action=edit&id=$ref->{vc_id}&db=$ref->{db}&path=$form->{path}&login=$form->{login}&callback=$callback>$ref->{name}</a></td>";
+            $column_data{name} = "<td align=left><a href=ct.pl?action=edit&id=$ref->{vc_id}&db=$ref->{db}&path=$form->{path}&login=$form->{login}&callback=$callback>$ref->{name}</a></td>";
         }
 
         $column_data{debit}  = "<td align=right>$ref->{debit}</td>";
         $column_data{credit} = "<td align=right>$ref->{credit}</td>";
+        $column_data{taxamount} = "<td align=right>$ref->{taxamount}</td>";
+        $column_data{exchangerate} = "<td align=right>$ref->{exchangerate}</td>";
 
-        $column_data{accno}          = "<td><a href=$href&accno=$ref->{accno}&callback=$callback>$ref->{accno}</a></td>";
-        $column_data{accdescription} = "<td>$ref->{accdescription}</td>";
-        $column_data{contra}         = "<td>";
+        $column_data{accno}          = "<td align=left><a href=$href&accno=$ref->{accno}&callback=$callback>$ref->{accno}</a></td>";
+        $column_data{accdescription} = "<td align=left>$ref->{accdescription}</td>";
+        if ($ref->{fx_transaction}){
+           $column_data{curr} = "<td>$form->{defaultcurrency}</td>";
+        } else {
+           $column_data{curr} = "<td>$ref->{curr}</td>";
+        }
+        $column_data{contra}         = "<td align=left>";
         for ( split / /, $ref->{contra} ) {
             $column_data{contra} .= qq|<a href=$href&accno=$_&callback=$callback>$_</a>&nbsp;|;
         }
         $column_data{contra} .= "</td>";
-        $column_data{gifi_accno}  = "<td><a href=$href&gifi_accno=$ref->{gifi_accno}&callback=$callback>$ref->{gifi_accno}</a>&nbsp;</td>";
-        $column_data{gifi_contra} = "<td>";
+        $column_data{gifi_accno}  = "<td align=left><a href=$href&gifi_accno=$ref->{gifi_accno}&callback=$callback>$ref->{gifi_accno}</a>&nbsp;</td>";
+        $column_data{gifi_contra} = "<td align=left>";
         for ( split / /, $ref->{gifi_contra} ) {
             $column_data{gifi_contra} .= qq|<a href=$href&gifi_accno=$_&callback=$callback>$_</a>&nbsp;|;
         }
@@ -1022,6 +1084,8 @@ sub transactions {
 
         $column_data{balance} = "<td align=right>" . $form->format_amount( \%myconfig, $form->{balance} * $ml * $cml, $form->{precision}, 0 ) . "</td>";
         $column_data{cleared} = ( $ref->{cleared} ) ? "<td>*</td>" : "<td>&nbsp;</td>";
+        $column_data{log} = "<td align=left>$ref->{log}</td>";
+        $column_data{ts} = "<td align=left>$ref->{ts}</td>";
 
         if ( $ref->{id} != $sameid ) {
             $i++;
@@ -1495,7 +1559,7 @@ sub transactions_to_csv {
         $ref->{reference} ||= "";
         $column_data{reference} = "$ref->{reference}";
 
-        for (qw(department projectnumber name vcnumber address)) { $column_data{$_} = "$ref->{$_}" }
+        for (qw(department projectnumber name vcnumber address exchangerate curr ts)) { $column_data{$_} = "$ref->{$_}" }
 
         for (qw(lineitem description source memo notes intnotes)) {
             $column_data{$_} = &escape_csv( $ref->{$_} );
@@ -1675,7 +1739,7 @@ sub update {
                 SELECT rate 
                 FROM tax 
                 WHERE chart_id = (SELECT id FROM chart WHERE accno = '$tax_accno')
-                AND (validto IS NULL OR validto <= '$form->{transdate}')|
+                AND (validto IS NULL OR validto >= '$form->{transdate}')|
             );
             $taxamount = $form->round_amount( ( $form->{"debit_$i"} + $form->{"credit_$i"} ) - ( $form->{"debit_$i"} + $form->{"credit_$i"} ) / ( 1 + $tax_rate ), $form->{precision} );
             $form->{"taxamount_$i"} = $taxamount;
@@ -2194,5 +2258,47 @@ sub post {
         $form->error( $locale->text('Cannot post transaction!') );
     }
 
+}
+
+
+sub view {
+    $form->header;
+
+    use DBIx::Simple;
+    my $dbh = $form->dbconnect(\%myconfig);
+    my $dbs = DBIx::Simple->connect($dbh);
+
+    $query = qq|
+            SELECT * 
+            FROM gl_log a
+            WHERE a.ts = ?
+            ORDER BY a.ts
+    |;
+
+    my $table = $dbs->query($query, $form->{ts})->xto(
+        tr => { class => [ 'listrow0', 'listrow1' ] },
+        th => { class => ['listheading'] },
+    );
+    $table->modify(td => {align => 'right'}, 'amount');
+    $table->map_cell(sub {return $form->format_amount(\%myconfig, shift, 4) }, 'amount');
+
+    print $table->output;
+
+    $query = qq|
+            SELECT * 
+            FROM acc_trans_log ac
+            WHERE ac.ts = ?
+            ORDER BY ac.ts
+    |;
+    $table = $dbs->query($query, $form->{ts})->xto(
+        tr => { class => [ 'listrow0', 'listrow1' ] },
+        th => { class => ['listheading'] },
+    );
+    $table->modify(td => {align => 'right'}, 'amount');
+    $table->map_cell(sub {return $form->format_amount(\%myconfig, shift, 4) }, 'amount');
+    $table->set_group( 'transdate', 1 );
+    $table->calc_totals( [qw(amount)] );
+
+    print $table->output;
 }
 

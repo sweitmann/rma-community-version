@@ -35,7 +35,9 @@ sub invoice_details {
   $form->{invdate} = $form->{transdate};
 
   $form->{xml_duedate} = $form->datetonum($myconfig, $form->{duedate});
+  $form->{qr_duedate} = $form->format_date('yyyy-mm-dd', $form->{xml_duedate});
   $form->{xml_invdate} = $form->datetonum($myconfig, $form->{transdate});
+  $form->{qr_invdate} = $form->format_date('yyyy-mm-dd', $form->{xml_invdate});
 
   my %defaults = $form->get_defaults($dbh, \@{[qw(address1 address2 city state zip country)]});
   $form->{companyaddress1} = $defaults{address1};
@@ -600,6 +602,10 @@ sub invoice_details {
   my $decimal;
   
   $form->{total} = $form->round_amount($form->{total}, 2);
+  
+  $qr_numberformat = { numberformat => '1,000.00' };
+  $form->{qr_total} =  $form->format_amount($qr_numberformat, $form->{total}, 2);
+
   ($whole, $decimal) = split /\./, $form->round_amount($form->{invtotal},2);
 
   $form->{decimal} = substr("${decimal}00", 0, 2);
@@ -613,6 +619,8 @@ sub invoice_details {
   $form->{text_out_amount} = $c->num2text($whole);
   $form->{integer_out_amount} = $whole;
 
+  $form->{qr_integer_out_amount} =  $form->format_amount($qr_numberformat, $form->{integer_out_amount}, 2);
+  for (qw(qr_total qr_integer_out_amount)){ $form->{$_} =~ s/,/ /g }
   if ($form->{cd_amount}) {
     ($whole, $decimal) = split /\./, $form->{cd_invtotal};
     $form->{cd_decimal} = substr("${decimal}00", 0, 2);
@@ -674,6 +682,59 @@ sub delete_invoice {
   }
 
   $form->{id} *= 1;
+
+  my %defaults = $form->get_defaults($dbh, \@{['precision', 'extendedlog']});
+
+  if ($form->{id} and $defaults{extendedlog}) {
+     $query = qq|INSERT INTO ar_log_deleted SELECT ar.* FROM ar WHERE id = $form->{id}|;
+     $dbh->do($query) || $form->dberror($query);
+
+     $query = qq|
+        INSERT INTO acc_trans_log_deleted (
+            trans_id, chart_id, 
+            amount, transdate, source,
+            approved, fx_transaction, project_id,
+            memo, id, cleared,
+            vr_id, entry_id,
+            tax, taxamount, tax_chart_id,
+            ts
+            )
+        SELECT 
+            ac.trans_id, ac.chart_id, 
+            ac.amount, ac.transdate, ac.source,
+            ac.approved, ac.fx_transaction, ac.project_id,
+            ac.memo, ac.id, ac.cleared,
+            vr_id, ac.entry_id,
+            ac.tax, ac.taxamount, ac.tax_chart_id,
+            ts
+        FROM acc_trans ac
+        JOIN ar aa ON (aa.id = ac.trans_id)
+        WHERE trans_id = $form->{id}|;
+     $dbh->do($query) || $form->dberror($query);
+
+     $query = qq|
+        INSERT INTO acc_trans_log_deleted (
+            trans_id, chart_id, 
+            amount, transdate, source,
+            approved, fx_transaction, project_id,
+            memo, id, cleared,
+            vr_id, entry_id,
+            tax, taxamount, tax_chart_id,
+            ts
+            )
+        SELECT 
+            ac.trans_id, ac.chart_id, 
+            0 - ac.amount, ac.transdate, ac.source,
+            ac.approved, ac.fx_transaction, ac.project_id,
+            ac.memo, ac.id, ac.cleared,
+            vr_id, ac.entry_id,
+            ac.tax, ac.taxamount, ac.tax_chart_id,
+            NOW() 
+        FROM acc_trans ac
+        JOIN ar aa ON (aa.id = ac.trans_id)
+        WHERE trans_id = $form->{id}|;
+     $dbh->do($query) || $form->dberror($query);
+  }
 
   &reverse_invoice($dbh, $form);
   
@@ -858,7 +919,7 @@ sub post_invoice {
     $form->{"${_}_id"} *= 1;
   }
 
-  my %defaults = $form->get_defaults($dbh, \@{['fx%_accno_id', 'cdt', 'precision']});
+  my %defaults = $form->get_defaults($dbh, \@{['fx%_accno_id', 'cdt', 'precision', 'extendedlog']});
   $form->{precision} = $defaults{precision};
 
   $query = qq|SELECT p.assembly, p.inventory_accno_id,
@@ -885,6 +946,53 @@ sub post_invoice {
          $form->{oe_id} *= 1;
          $dbh->do("DELETE FROM inventory WHERE trans_id = $form->{oe_id}"); # Delete any 'inventory' transactions saved from order. For existing invoices.
       }
+      if ($defaults{extendedlog}) {
+        $query = qq|INSERT INTO ar_log SELECT ar.* FROM ar WHERE id = $form->{id}|;
+        $dbh->do($query) || $form->dberror($query);
+        $query = qq|
+            INSERT INTO invoice_log
+            SELECT invoice.*, ar.ts
+            FROM invoice
+            JOIN ar ON (ar.id = invoice.trans_id)
+            WHERE invoice.trans_id = $form->{id}
+        |;
+        $dbh->do($query) || $form->dberror($query);
+
+        $query = qq|
+            INSERT INTO acc_trans_log 
+            SELECT acc_trans.*, ar.ts
+            FROM acc_trans
+            JOIN ar ON (ar.id = acc_trans.trans_id)
+            WHERE trans_id = $form->{id}
+        |;
+        $dbh->do($query) || $form->dberror($query);
+
+        $query = qq|UPDATE ar SET ts = NOW() + TIME '00:00:01'  WHERE id = $form->{id}|;
+        $dbh->do($query) || $form->dberror($query);
+
+        $query = qq|
+            INSERT INTO acc_trans_log (
+                trans_id, chart_id, 
+                amount, transdate, source,
+                approved, fx_transaction, project_id,
+                memo, id, cleared,
+                vr_id, entry_id,
+                tax, taxamount, tax_chart_id,
+                ts
+                )
+            SELECT 
+                ac.trans_id, ac.chart_id, 
+                0 - ac.amount, ac.transdate, ac.source,
+                ac.approved, ac.fx_transaction, ac.project_id,
+                ac.memo, ac.id, ac.cleared,
+                vr_id, ac.entry_id,
+                ac.tax, ac.taxamount, ac.tax_chart_id,
+                NOW()
+            FROM acc_trans ac
+            JOIN ar ON (ar.id = ac.trans_id)
+            WHERE trans_id = $form->{id}|;
+            $dbh->do($query) || $form->dberror($query);
+      } # if ($defaults{extendedlog})
 
       &reverse_invoice($dbh, $form);
     } else {
@@ -1142,6 +1250,8 @@ sub post_invoice {
 	  my $taxamount = 0;
       my $taxamounttotal = 0;
       for (@taxaccounts){
+         $ok = $dbh->selectrow_array("SELECT 1 FROM customertax WHERE customer_id = $form->{customer_id} AND chart_id IN (SELECT id FROM chart WHERE accno = '$_')");
+         if ($ok){
 	$taxamount = $linetotal * $form->{"${_}_rate"} if $form->{"${_}_rate"} != 0; 
     $taxamounttotal += $taxamount;
         if ($taxamount != 0){
@@ -1151,10 +1261,14 @@ sub post_invoice {
 	}
       }
      if ($taxamounttotal == 0){ # Item is not taxed
+         $ok = $dbh->selectrow_array("SELECT 1 FROM customertax WHERE customer_id = $form->{customer_id} AND chart_id IN (SELECT id FROM chart WHERE accno = '$_')");
+         if ($ok){
 	  my $query = qq|INSERT INTO invoicetax (trans_id, invoice_id, chart_id, amount, taxamount)
-			VALUES ($form->{id}, $id, 0, $linetotal, 0)|;
+			VALUES ($form->{id}, $id, (SELECT id FROM chart WHERE accno = '$_'), $linetotal, 0)|;
 	  $dbh->do($query) || $form->dberror($query);
+         }
 	 }
+  }
 
 
 
@@ -2179,8 +2293,12 @@ sub retrieve_invoice {
     if ($form->{paymentmethod_id}) {
       $form->{payment_method} = "$form->{paymentmethod}--$form->{paymentmethod_id}";
     }
-    
-    $form->{type} = ($form->{amount} < 0) ? 'credit_invoice' : 'invoice';
+        
+    if ( !$form->{precision} ) {
+    	$form->{precision} = 2;
+    }    
+        
+    $form->{type} = ($form->round_amount($form->{amount}, $form->{precision}) < 0) ? 'credit_invoice' : 'invoice';
     $form->{type} = 'pos_invoice' if $form->{till};
     $form->{formname} = $form->{type};
 

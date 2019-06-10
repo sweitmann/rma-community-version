@@ -31,7 +31,7 @@ sub post_transaction {
   $form->{department_id} *= 1;
   
 
-  my %defaults = $form->get_defaults($dbh, \@{['fx%accno_id', 'cdt', 'precision']});
+  my %defaults = $form->get_defaults($dbh, \@{['fx%accno_id', 'cdt', 'precision', 'extendedlog']});
   $form->{precision} = $defaults{precision};
 
   my $ml = 1;
@@ -237,8 +237,47 @@ sub post_transaction {
 
     &reverse_vouchers($dbh, $form);
 
-    if ($form->{id}) {
-      # delete detail records
+    if ($form->{id}){
+        if ($defaults{extendedlog}) {
+        $query = qq|INSERT INTO ${table}_log SELECT ${table}.* FROM $table WHERE id = $form->{id}|;
+        $dbh->do($query) || $form->dberror($query);
+        $query = qq|
+            INSERT INTO acc_trans_log 
+            SELECT acc_trans.*, ${table}.ts
+            FROM acc_trans
+            JOIN $table ON (${table}.id = acc_trans.trans_id)
+            WHERE trans_id = $form->{id}
+        |;
+        $dbh->do($query) || $form->dberror($query);
+
+        $query = qq|
+            INSERT INTO acc_trans_log (
+                trans_id, chart_id, 
+                amount, transdate, source,
+                approved, fx_transaction, project_id,
+                memo, id, cleared,
+                vr_id, entry_id,
+                tax, taxamount, tax_chart_id,
+                ts
+                )
+            SELECT 
+                ac.trans_id, ac.chart_id, 
+                0 - ac.amount, ac.transdate, ac.source,
+                ac.approved, ac.fx_transaction, ac.project_id,
+                ac.memo, ac.id, ac.cleared,
+                vr_id, ac.entry_id,
+                ac.tax, ac.taxamount, ac.tax_chart_id,
+                NOW()
+            FROM acc_trans ac
+            JOIN $table ON (${table}.id = ac.trans_id)
+            WHERE trans_id = $form->{id}|;
+        $dbh->do($query) || $form->dberror($query);
+
+        $query = qq|UPDATE ${table} SET ts = NOW() + TIME '00:00:01' WHERE id = $form->{id}|;
+        $dbh->do($query) || $form->dberror($query);
+
+        } # if ($defaults{extendedlog})
+        # delete detail records
       for (qw(acc_trans dpt_trans payment)) {
 	$query = qq|DELETE FROM $_ WHERE trans_id = $form->{id}|;
 	$dbh->do($query) || $form->dberror($query);
@@ -587,8 +626,8 @@ sub post_transaction {
   }
 
   # armaghan 13/05/2015 Fix for rounding issue
+  # philipp_kroll overworked rounding issue fix 2018-09-26 ignoring credit, debit, credit_note, debit_note in calculation of amount.
   if ($invamount eq $paid){
-          $multiplicator = ($form->{vc} eq 'vendor') ? -1 : 1;
           my $invamount2 = $dbh->selectrow_array("
               SELECT round(sum(amount)::numeric,2)
               FROM acc_trans ac
@@ -596,20 +635,23 @@ sub post_transaction {
               WHERE trans_id=$form->{id}
               AND c.link LIKE '$ARAP'
           ");
-          $invamount2 *= 1;
+          $invamount2 *= 1; # IMO this line is obsolete but I leave it anyway.
           if ($invamount2){
               my ($transdate) = $dbh->selectrow_array("select max(transdate) from acc_trans where trans_id = $form->{id}");
               ($accno) = split /--/, $form->{$ARAP};
+              # this acc_trans entry shall always be the opposite of the follow up query, so we multiply by -1 no matter if creadit, debit, credit_note, debit_note.
               $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount, transdate, approved)
                     VALUES ($form->{id}, (SELECT id FROM chart WHERE accno = '$accno'),
-                    $invamount2 * $ml * $arapml, '$transdate', '$approved')|;
+                    $invamount2 * -1, '$transdate', '$approved')|;
               $dbh->do($query) || $form->dberror($query);
+              # no matter if ar - or ar + or ap - or ap +, amount > 0 means it's a win, while amount < 0 means it's a loss
+              # that implies, amount > 0 go to fx gain while amount < 0 go to fx loss, if credit, debit, credit_note or debit_note doesn't matter.
               if ($invamount2 > 0) {
                 $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount, transdate, approved)
-                VALUES ($form->{id}, $defaults{fxgain_accno_id}, $invamount2 * |.$multiplicator.qq| * $ml * $arapml, '$transdate', '$approved')|;
+                VALUES ($form->{id}, $defaults{fxgain_accno_id}, $invamount2, '$transdate', '$approved')|;
               } else {
                 $query = qq|INSERT INTO acc_trans (trans_id, chart_id, amount, transdate, approved)
-                VALUES ($form->{id}, $defaults{fxloss_accno_id}, $invamount2 * |.$multiplicator.qq| * $ml * $arapml, '$transdate', '$approved')|;
+                VALUES ($form->{id}, $defaults{fxloss_accno_id}, $invamount2, '$transdate', '$approved')|;
               }
               $dbh->do($query) || $form->dberror($query);
           }
@@ -729,6 +771,59 @@ sub delete_transaction {
   my $table = ($form->{vc} eq 'customer') ? 'ar' : 'ap';
   
   $form->{id} *= 1;
+
+  my %defaults = $form->get_defaults($dbh, \@{['precision', 'extendedlog']});
+
+  if ($form->{id} and $defaults{extendedlog}) {
+     $query = qq|INSERT INTO ${table}_log_deleted SELECT ${table}.* FROM $table WHERE id = $form->{id}|;
+     $dbh->do($query) || $form->dberror($query);
+
+     $query = qq|
+        INSERT INTO acc_trans_log_deleted (
+            trans_id, chart_id, 
+            amount, transdate, source,
+            approved, fx_transaction, project_id,
+            memo, id, cleared,
+            vr_id, entry_id,
+            tax, taxamount, tax_chart_id,
+            ts
+            )
+        SELECT 
+            ac.trans_id, ac.chart_id, 
+            ac.amount, ac.transdate, ac.source,
+            ac.approved, ac.fx_transaction, ac.project_id,
+            ac.memo, ac.id, ac.cleared,
+            vr_id, ac.entry_id,
+            ac.tax, ac.taxamount, ac.tax_chart_id,
+            ts
+        FROM acc_trans ac
+        JOIN $table aa ON (aa.id = ac.trans_id)
+        WHERE trans_id = $form->{id}|;
+     $dbh->do($query) || $form->dberror($query);
+
+     $query = qq|
+        INSERT INTO acc_trans_log_deleted (
+            trans_id, chart_id, 
+            amount, transdate, source,
+            approved, fx_transaction, project_id,
+            memo, id, cleared,
+            vr_id, entry_id,
+            tax, taxamount, tax_chart_id,
+            ts
+            )
+        SELECT 
+            ac.trans_id, ac.chart_id, 
+            0 - ac.amount, ac.transdate, ac.source,
+            ac.approved, ac.fx_transaction, ac.project_id,
+            ac.memo, ac.id, ac.cleared,
+            vr_id, ac.entry_id,
+            ac.tax, ac.taxamount, ac.tax_chart_id,
+            NOW() 
+        FROM acc_trans ac
+        JOIN $table aa ON (aa.id = ac.trans_id)
+        WHERE trans_id = $form->{id}|;
+     $dbh->do($query) || $form->dberror($query);
+  }
 
   my %audittrail = ( tablename  => $table,
                      reference  => $form->{invnumber},
@@ -907,9 +1002,9 @@ sub transactions {
 		  dcn => 30,
 		  paymentmethod => 31,
 		  paymentdiff => 32,
-		  accno => 39,
-		  source => 40,
-		  project => 41
+		  accno => 38,
+		  source => 39,
+		  project => 40
 		);
 
   
